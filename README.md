@@ -1,111 +1,116 @@
+<div align="center">
+
 # 🐙 Open Octopus
 
-> **Unofficial** open-source toolkit for [Octopus Energy](https://octopus.energy) customers.
+> **Unofficial** open-source terminal toolkit for [Octopus Energy](https://octopus.energy) customers.
 > Not affiliated with or endorsed by Octopus Energy.
 
-<img src="docs/menubar-screenshot.png" width="300" alt="Open Octopus Menu Bar App">
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Code Style: Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
-## What's Included
+</div>
 
-| Component | Description |
-|-----------|-------------|
-| **Menu Bar App** | Native macOS app with live rates, usage, insights |
-| **CLI Tools** | Terminal commands for quick access to your data |
-| **TUI** | Interactive terminal dashboard |
-| **AI Assistant** | Ask questions about your energy usage |
-| **Alerts** | Notifications for rate changes, charging, sessions *(coming soon)* |
+---
 
-## Features
+> **Note**: This project is forked from [abracadabra50/open-octopus](https://github.com/abracadabra50/open-octopus).
 
-### Menu Bar App (macOS)
-- Live rate display with countdown to off-peak
-- Smart charging status with golden indicator when EV is charging
-- Usage sparkline with off-peak hour highlighting
-- Rate comparison (peak vs off-peak savings)
-- Monthly cost projection
-- AI chat with quick action buttons
 
-### CLI Tools
+
+**Open Octopus** is a modern, async Python client and Terminal User Interface (TUI) for tracking your Octopus Energy usage, smart rates, and dispatch schedules directly from your command line.
+
+## ✨ Features
+
+- **🖥️ Interactive TUI**: A beautiful dashboard in your terminal featuring live rates, usage stats, and graphs.
+- **🤖 AI Assistant**: Chat with your energy data using the `octopus-ask` command (powered by Google Gemini).
+- **⚡ Live Data**: Real-time power consumption monitoring (Mini/Home Pro).
+- **🔋 Smart Dispatch**: View your Intelligent Octopus EV charging schedules.
+- **💰 Cost Tracking**: Monthly cost projections and rate comparisons.
+
+## 💻 Compatibility
+
+This tool is designed for **Unix-based systems** (Linux and macOS) as it relies on `termios` and `tty` libraries for the interactive Terminal User Interface (TUI).
+
+**Windows users:** This application will **not** run natively on Windows. Please use [WSL (Windows Subsystem for Linux)](https://learn.microsoft.com/en-us/windows/wsl/install) to run it.
+
+## 🚀 Installation
+
+The easiest way to get started is using the included setup script:
+
 ```bash
-octopus rate       # Current electricity rate
-octopus account    # Account balance
-octopus usage      # Consumption data
-octopus dispatch   # EV charging schedule
-octopus power      # Live power (if available)
-octopus sessions   # Saving sessions
+# 1. Make the script executable
+chmod +x run.sh
+
+# 2. Run setup (installs dependencies and creates shortcuts)
+./run.sh
 ```
 
-### TUI (Terminal UI)
+## ⚙️ Configuration
+
+Set your credentials via environment variables in a `.env` file or `config.txt`.
+
 ```bash
-octopus tui        # Interactive dashboard
+# Required: API Credentials
+export OCTOPUS_API_KEY="YOUR_API_KEY_HERE"
+export OCTOPUS_ACCOUNT="A-XXXXXXXX"
+
+# Optional: Consumption Data
+export OCTOPUS_MPAN="1234567890123"
+export OCTOPUS_METER_SERIAL="12A3456789"
+
+# Optional: AI Assistant (Google Gemini)
+export GEMINI_API_KEY="AIxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+```
+
+## 🛠️ Usage
+
+After running the setup script, you can use the generated shortcuts directly:
+
+### Terminal Dashboard (TUI)
+Launch the interactive dashboard:
+
+```bash
+./octopus-tui
 ```
 
 ### AI Assistant
-```bash
-octopus-ask "What's the best time to run my dishwasher?"
-octopus-ask "How much did I spend this week?"
-octopus-ask "Compare my usage to last month"
-```
-
-## Installation
+Ask questions about your energy usage in plain English (powered by Google Gemini):
 
 ```bash
-pip install open-octopus
+./octopus-ask "What is the best time to run the washing machine today?"
+./octopus-ask "How much did I use yesterday?"
 ```
 
-### Configuration
-
-Set your credentials:
-```bash
-export OCTOPUS_API_KEY="sk_live_xxxxx"
-export OCTOPUS_ACCOUNT="A-XXXXXXXX"
-export OCTOPUS_MPAN="1234567890123"        # For consumption data
-export OCTOPUS_METER_SERIAL="12A3456789"   # For consumption data
-export ANTHROPIC_API_KEY="sk-ant-xxxxx"    # For AI features
-```
-
-Or create `~/.octopus.env`:
-```bash
-OCTOPUS_API_KEY=sk_live_xxxxx
-OCTOPUS_ACCOUNT=A-XXXXXXXX
-OCTOPUS_MPAN=1234567890123
-OCTOPUS_METER_SERIAL=12A3456789
-ANTHROPIC_API_KEY=sk-ant-xxxxx
-```
-
-### Menu Bar App (macOS)
+### CLI Commands
+Quick access to specific data points:
 
 ```bash
-git clone https://github.com/abracadabra50/open-octopus.git
-cd open-octopus
-xcodebuild -workspace OctopusMenuBar.xcworkspace -scheme OctopusMenuBar build
-open ~/Library/Developer/Xcode/DerivedData/OctopusMenuBar-*/Build/Products/Debug/OctopusMenuBar.app
+octopus rate       # Show current electricity rate
+octopus account    # View account balance
+octopus usage      # Fetch recent consumption data
+octopus dispatch   # Check mostly recent EV dispatch slots
+octopus power      # View live power draw (requires Home Mini)
 ```
 
-## Supported Tariffs
+## 📦 Supported Tariffs
 
 - Intelligent Octopus Go
 - Octopus Go
 - Agile Octopus
 - Flexible Octopus
 - Tracker
-- And more...
+- *And most other standard tariffs*
 
-## Roadmap
+## 🤝 Contributing
 
-- [ ] **Alerts** - macOS notifications for:
-  - Off-peak rate starting/ending
-  - EV dispatch starting/ending
-  - Saving sessions
-  - Low balance warning
-- [ ] **Widgets** - macOS desktop widgets
-- [ ] **Gas support** - Full gas meter integration
-- [ ] **Historical charts** - Weekly/monthly usage graphs
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-## License
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
-MIT
+## 📄 License
 
-## Credits
-
-Built with Python and SwiftUI. AI powered by [Claude](https://anthropic.com).
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

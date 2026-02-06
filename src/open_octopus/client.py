@@ -1,5 +1,6 @@
 """Async client for the Octopus Energy GraphQL API."""
 
+import os
 import httpx
 from datetime import datetime, timedelta
 from typing import Optional
@@ -39,6 +40,7 @@ class OctopusClient:
         meter_serial: Optional[str] = None,
         gas_mprn: Optional[str] = None,
         gas_meter_serial: Optional[str] = None,
+        device_id: Optional[str] = None,
     ):
         """
         Initialize the Octopus Energy client.
@@ -57,6 +59,7 @@ class OctopusClient:
         self.meter_serial = meter_serial
         self.gas_mprn = gas_mprn
         self.gas_meter_serial = gas_meter_serial
+        self.device_id = device_id
 
         self._token: Optional[str] = None
         self._token_expires: Optional[datetime] = None
@@ -64,7 +67,7 @@ class OctopusClient:
 
     async def __aenter__(self):
         """Async context manager entry."""
-        self._http = httpx.AsyncClient()
+        self._http = httpx.AsyncClient(timeout=30.0)
         return self
 
     async def __aexit__(self, *args):
@@ -76,7 +79,7 @@ class OctopusClient:
     async def _get_http(self) -> httpx.AsyncClient:
         """Get or create HTTP client."""
         if self._http is None:
-            self._http = httpx.AsyncClient()
+            self._http = httpx.AsyncClient(timeout=30.0)
         return self._http
 
     async def _get_token(self) -> str:
@@ -125,6 +128,32 @@ class OctopusClient:
             raise APIError(data["errors"][0]["message"])
 
         return data["data"]
+
+    async def _fetch_consumption(
+        self,
+        url: str,
+        params: dict,
+        mp_id: str,
+        meter_serial: str,
+        resource_type: str
+    ) -> list[dict]:
+        """Helper to fetch consumption data from REST API."""
+        if not mp_id or not meter_serial:
+            raise ConfigurationError(f"{resource_type} meter point and serial required")
+
+        http = await self._get_http()
+        
+        try:
+            resp = await http.get(
+                url,
+                params=params,
+                auth=(self.api_key, "")
+            )
+            resp.raise_for_status()
+            return resp.json().get("results", [])
+        except httpx.HTTPError as e:
+            print(f"Error fetching {resource_type} consumption: {e}")
+            return []
 
     # -------------------------------------------------------------------------
     # Account & Billing
@@ -182,23 +211,13 @@ class OctopusClient:
         Returns:
             List of Consumption readings
         """
-        if not self.mpan or not self.meter_serial:
-            raise ConfigurationError("MPAN and meter serial required for consumption data")
 
-        http = await self._get_http()
+        url = f"{REST_API_URL}/electricity-meter-points/{self.mpan}/meters/{self.meter_serial}/consumption/"
         params = {"page_size": periods}
-        if start:
-            params["period_from"] = start.isoformat()
-        if end:
-            params["period_to"] = end.isoformat()
+        if start: params["period_from"] = start.isoformat()
+        if end: params["period_to"] = end.isoformat()
 
-        resp = await http.get(
-            f"{REST_API_URL}/electricity-meter-points/{self.mpan}/meters/{self.meter_serial}/consumption/",
-            params=params,
-            auth=(self.api_key, "")
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        results = await self._fetch_consumption(url, params, self.mpan, self.meter_serial, "Electricity")
 
         return [
             Consumption(
@@ -206,7 +225,7 @@ class OctopusClient:
                 end=datetime.fromisoformat(r["interval_end"].replace("Z", "+00:00")),
                 kwh=r["consumption"]
             )
-            for r in data.get("results", [])
+            for r in results
         ]
 
     async def get_daily_usage(self, days: int = 7) -> dict[str, float]:
@@ -219,7 +238,12 @@ class OctopusClient:
         Returns:
             Dict mapping date strings to kWh totals
         """
-        consumption = await self.get_consumption(periods=days * 48)
+        # API defaults to 7 days if period_from is omitted, so we must specify it
+        start = datetime.now() - timedelta(days=days)
+        # Align to start of day (midnight) to ensure we get full data for the oldest day
+        start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        consumption = await self.get_consumption(periods=days * 48, start=start)
         daily: dict[str, float] = {}
         for c in consumption:
             day = c.start.strftime("%Y-%m-%d")
@@ -239,7 +263,7 @@ class OctopusClient:
         """
         Get half-hourly gas consumption.
 
-        Note: SMETS1 meters return kWh directly, SMETS2 meters return m³
+        Note: SMETS1 meters return kWh directly, SMETS2 meters return cubic meters
         which is converted to kWh using a standard factor of 11.1868.
 
         Args:
@@ -250,30 +274,20 @@ class OctopusClient:
         Returns:
             List of GasConsumption readings
         """
-        if not self.gas_mprn or not self.gas_meter_serial:
-            raise ConfigurationError("gas_mprn and gas_meter_serial required for gas data")
 
-        http = await self._get_http()
+        url = f"{REST_API_URL}/gas-meter-points/{self.gas_mprn}/meters/{self.gas_meter_serial}/consumption/"
         params = {"page_size": periods}
-        if start:
-            params["period_from"] = start.isoformat()
-        if end:
-            params["period_to"] = end.isoformat()
+        if start: params["period_from"] = start.isoformat()
+        if end: params["period_to"] = end.isoformat()
 
-        resp = await http.get(
-            f"{REST_API_URL}/gas-meter-points/{self.gas_mprn}/meters/{self.gas_meter_serial}/consumption/",
-            params=params,
-            auth=(self.api_key, "")
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        data_results = await self._fetch_consumption(url, params, self.gas_mprn, self.gas_meter_serial, "Gas")
 
         # Standard gas conversion factor: m³ to kWh
         # (volume correction × calorific value × kWh conversion)
         M3_TO_KWH = 11.1868
 
         results = []
-        for r in data.get("results", []):
+        for r in data_results:
             consumption = r["consumption"]
             # If value is small, it's likely m³ (SMETS2), convert to kWh
             # SMETS1 meters report in kWh directly (larger values)
@@ -303,19 +317,22 @@ class OctopusClient:
         Returns:
             Dict mapping date strings to kWh totals
         """
-        consumption = await self.get_gas_consumption(periods=days * 48)
+        start = datetime.now() - timedelta(days=days)
+        start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        consumption = await self.get_gas_consumption(periods=days * 48, start=start)
         daily: dict[str, float] = {}
         for c in consumption:
             day = c.start.strftime("%Y-%m-%d")
             daily[day] = daily.get(day, 0) + c.kwh
         return daily
 
-    async def get_gas_tariff(self, region: str = "J") -> Optional[GasTariff]:
+    async def get_gas_tariff(self, region: Optional[str] = None) -> Optional[GasTariff]:
         """
         Get current gas tariff details.
 
         Args:
-            region: DNO region code (default J = Scotland)
+            region: DNO region code (default J = Scotland, or OCTOPUS_REGION env)
 
         Returns:
             GasTariff with rates, or None if not found
@@ -324,9 +341,9 @@ class OctopusClient:
             """
             query GetGasTariff($account: String!) {
                 account(accountNumber: $account) {
-                    gasAgreements(active: true) {
+                    gasAgreements {
                         tariff {
-                            ... on StandardTariff {
+                            ... on GasTariffType {
                                 displayName
                                 productCode
                                 standingCharge
@@ -346,6 +363,9 @@ class OctopusClient:
         tariff_data = agreements[0].get("tariff", {})
         product_code = tariff_data.get("productCode", "")
 
+        if not region:
+            region = os.environ.get("OCTOPUS_REGION", "J")
+            
         # Fetch unit rate from REST API
         http = await self._get_http()
         tariff_code = f"G-1R-{product_code}-{region}"
@@ -353,12 +373,46 @@ class OctopusClient:
         try:
             resp = await http.get(
                 f"{REST_API_URL}/products/{product_code}/gas-tariffs/{tariff_code}/standard-unit-rates/",
-                params={"page_size": 1},
+                params={
+                    "page_size": 5, # Fetch a few to find the current valid one
+                    "period_from": datetime.now().isoformat()
+                },
                 auth=(self.api_key, "")
             )
             resp.raise_for_status()
             rates_data = resp.json()
-            unit_rate = rates_data.get("results", [{}])[0].get("value_inc_vat", 0)
+            
+            # Find the rate active NOW
+            unit_rate = 0
+            now = datetime.now()
+            # Standard API returns UTC timestamps with Z
+            # Our check needs to handle timezone awareness
+            from datetime import timezone
+            now_utc = now.astimezone(timezone.utc)
+            
+            for r in rates_data.get("results", []):
+                try:
+                    vf = datetime.fromisoformat(r["valid_from"].replace("Z", "+00:00"))
+                    vt = r["valid_to"]
+                    if vt:
+                        vt = datetime.fromisoformat(vt.replace("Z", "+00:00"))
+                    else:
+                        vt = datetime.max.replace(tzinfo=timezone.utc)
+                        
+                    if vf <= now_utc < vt:
+                        unit_rate = r.get("value_inc_vat", 0)
+                        break
+                except (ValueError, TypeError):
+                   continue
+            
+            # Fallback if no match found (e.g. slight time skew or weird data), take the first one
+            if unit_rate == 0 and rates_data.get("results"):
+                 # Try to take the one valid TODAY if possible, or just the first
+                 # If results[0] is future, we might want results[1]
+                 # But usually iteration above catches it.
+                 # If we missed it (e.g. gaps), fallback to top (likely future) or 0.
+                 # Let's fallback to the first element if loop didn't set it.
+                 pass
         except httpx.HTTPError:
             unit_rate = 0
 
@@ -366,19 +420,80 @@ class OctopusClient:
             name=tariff_data.get("displayName", "Unknown"),
             product_code=product_code,
             standing_charge=tariff_data.get("standingCharge", 0),
-            unit_rate=unit_rate
+            unit_rate=unit_rate,
+            tariff_code=tariff_code
         )
+
+    async def get_gas_rates(
+        self,
+        tariff: GasTariff,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None
+    ) -> dict[str, float]:
+        """
+        Get daily gas unit rates for a period.
+
+        Args:
+            tariff: The gas tariff object
+            start: Start datetime (optional)
+            end: End datetime (optional)
+
+        Returns:
+            Dict mapping date string (YYYY-MM-DD) to unit rate (pence/kWh)
+        """
+        http = await self._get_http()
+        # Use stored tariff_code if available, otherwise reconstruct with default J
+        if tariff.tariff_code:
+            tariff_code = tariff.tariff_code
+            # Try to guess region from tariff code (last char)
+            # e.g. G-1R-SILVER-25-04-15-L -> L
+            pass
+        else:
+            # Fallback to behavior before we had tariff_code (defaults J)
+            region = "J" # Default
+            # Try env var
+            region = os.environ.get("OCTOPUS_REGION", "J")
+            tariff_code = f"G-1R-{tariff.product_code}-{region}"
+
+        params = {"page_size": 100} # Should cover a month easily
+        if start:
+            params["period_from"] = start.isoformat()
+        if end:
+            params["period_to"] = end.isoformat()
+
+        try:
+            resp = await http.get(
+                f"{REST_API_URL}/products/{tariff.product_code}/gas-tariffs/{tariff_code}/standard-unit-rates/",
+                params=params,
+                auth=(self.api_key, "")
+            )
+            resp.raise_for_status()
+            results = resp.json().get("results", [])
+            
+            rates = {}
+            for r in results:
+                # valid_from and valid_to cover the period.
+                # Gas rates are usually daily (00:00 to 00:00).
+                # We want to map YYYY-MM-DD to the rate.
+                date_str = r["valid_from"][:10] # Extract YYYY-MM-DD
+                rates[date_str] = r["value_inc_vat"]
+            
+            return rates
+            
+        except httpx.HTTPError as e:
+            print(f"Error fetching gas rates: {e}")
+            return {}
 
     # -------------------------------------------------------------------------
     # Tariff & Rates
     # -------------------------------------------------------------------------
 
-    async def get_tariff(self, region: str = "J") -> Optional[Tariff]:
+    async def get_tariff(self, region: Optional[str] = None) -> Optional[Tariff]:
         """
         Get current electricity tariff details.
 
         Args:
-            region: DNO region code (default J = Scotland)
+            region: DNO region code (default J = Scotland, or OCTOPUS_REGION env)
 
         Returns:
             Tariff with rates, or None if not found
@@ -413,6 +528,9 @@ class OctopusClient:
 
         tariff_data = agreements[0].get("tariff", {})
         product_code = tariff_data.get("productCode", "")
+
+        if not region:
+            region = os.environ.get("OCTOPUS_REGION", "J")
 
         # Fetch unit rates from REST API
         http = await self._get_http()
@@ -500,12 +618,49 @@ class OctopusClient:
         """
         Get planned Intelligent Octopus dispatch slots.
 
-        These are the smart charging windows scheduled by Octopus
-        for your EV or battery.
+        Uses 'flexPlannedDispatches' if device_id is available,
+        falling back to legacy 'plannedDispatches'.
 
         Returns:
             List of Dispatch objects
         """
+        dispatches = []
+        
+        # 1. Try Modern 'flexPlannedDispatches' if device_id is present
+        if self.device_id:
+            try:
+                data = await self._graphql(
+                    """
+                    query GetFlexDispatches($deviceId: String!) {
+                        flexPlannedDispatches(deviceId: $deviceId) {
+                            start
+                            end
+                        }
+                    }
+                    """,
+                    {"deviceId": self.device_id}
+                )
+                
+                for d in data.get("flexPlannedDispatches") or []:
+                    try:
+                        dispatches.append(Dispatch(
+                            start=datetime.fromisoformat(d["start"].replace("Z", "+00:00")),
+                            end=datetime.fromisoformat(d["end"].replace("Z", "+00:00")),
+                            delta=float(d.get("delta") or 0),
+                            source="smart-charge"
+                        ))
+                    except (ValueError, KeyError) as e:
+                        print(f"Error parsing flex dispatch: {e}")
+                        continue
+            except Exception as e:
+                print(f"Error fetching flex dispatches: {e}")
+                # Fallback to legacy if this fails
+                pass
+
+        if dispatches:
+             return sorted(dispatches, key=lambda d: d.start)
+
+        # 2. Fallback to Legacy 'plannedDispatches'
         data = await self._graphql(
             """
             query GetDispatches($account: String!) {
@@ -519,16 +674,23 @@ class OctopusClient:
             {"account": self.account}
         )
 
-        dispatches = []
         for d in data.get("plannedDispatches") or []:
             try:
+                # Filter out slots with no energy transfer or negative (phantom/discharges)
+                delta = float(d.get("delta") or 0)
+                if delta <= 0.001:
+                    continue
+
                 dispatches.append(Dispatch(
                     start=datetime.fromisoformat(d["start"].replace("Z", "+00:00")),
                     end=datetime.fromisoformat(d["end"].replace("Z", "+00:00")),
+                    delta=delta,
                     source="smart-charge"
                 ))
-            except (ValueError, KeyError):
-                continue
+
+            except (ValueError, KeyError) as e:
+                 print(f"Error parsing planned dispatch: {e}")
+                 continue
 
         return sorted(dispatches, key=lambda d: d.start)
 
@@ -637,7 +799,8 @@ class OctopusClient:
                         end=end,
                         reward_per_kwh=e.get("rewardPerKwhInOctoPoints", 0)
                     ))
-            except (ValueError, KeyError):
+            except (ValueError, KeyError) as e:
+                print(f"Error parsing saving session: {e}")
                 continue
 
         return sorted(sessions, key=lambda s: s.start)
@@ -666,14 +829,14 @@ class OctopusClient:
                 return None
 
         end = datetime.now()
-        start = end - timedelta(minutes=30)
+        start = end - timedelta(minutes=5)
 
         data = await self._graphql(
             """
             query GetTelemetry($deviceId: String!, $start: DateTime!, $end: DateTime!) {
                 smartMeterTelemetry(
                     deviceId: $deviceId
-                    grouping: HALF_HOURLY
+                    grouping: TEN_SECONDS
                     start: $start
                     end: $end
                 ) {
@@ -697,12 +860,70 @@ class OctopusClient:
         latest = telemetry[-1]
         try:
             return LivePower(
-                demand_watts=int(latest.get("demand") or 0),
+                demand_watts=int(float(latest.get("demand") or 0)),
                 read_at=datetime.fromisoformat(latest["readAt"].replace("Z", "+00:00")),
                 consumption_kwh=latest.get("consumption")
             )
         except (ValueError, KeyError):
             return None
+
+    async def get_live_power_history(
+        self,
+        device_id: Optional[str] = None,
+        minutes: int = 30
+    ) -> list[LivePower]:
+        """
+        Get historical live power data (last 30 mins).
+        
+        Args:
+            device_id: Smart meter device ID
+            minutes: Minutes of history to fetch (default 30)
+
+        Returns:
+            List of LivePower objects
+        """
+        if not device_id:
+            device_id = await self._discover_meter_device()
+            if not device_id:
+                return []
+
+        end = datetime.now()
+        start = end - timedelta(minutes=minutes)
+
+        data = await self._graphql(
+            """
+            query GetTelemetry($deviceId: String!, $start: DateTime!, $end: DateTime!) {
+                smartMeterTelemetry(
+                    deviceId: $deviceId
+                    grouping: TEN_SECONDS
+                    start: $start
+                    end: $end
+                ) {
+                    readAt
+                    demand
+                    consumption
+                }
+            }
+            """,
+            {
+                "deviceId": device_id,
+                "start": f"{start.isoformat()}Z",
+                "end": f"{end.isoformat()}Z"
+            }
+        )
+
+        results = []
+        for r in data.get("smartMeterTelemetry") or []:
+            try:
+                results.append(LivePower(
+                    demand_watts=int(float(r.get("demand") or 0)),
+                    read_at=datetime.fromisoformat(r["readAt"].replace("Z", "+00:00")),
+                    consumption_kwh=r.get("consumption")
+                ))
+            except (ValueError, KeyError):
+                continue
+        
+        return results
 
     async def _discover_meter_device(self) -> Optional[str]:
         """Discover smart meter device ID from account."""

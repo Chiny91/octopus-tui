@@ -20,7 +20,11 @@ from typing import Optional
 try:
     import rumps
 except ImportError:
-    rumps = None
+    # Mock rumps to allow class definition
+    class MockRumps:
+        class App:
+            def __init__(self, *args, **kwargs): pass
+    rumps = MockRumps()
 
 from .client import OctopusClient
 from .models import Tariff, DispatchStatus, SavingSession, LivePower
@@ -33,8 +37,10 @@ except ImportError:
     HAS_AGENT = False
 
 
+
 class OctopusMenuBar(rumps.App):
     """Octopus Energy menu bar app - real-time energy monitoring."""
+
 
     def __init__(
         self,

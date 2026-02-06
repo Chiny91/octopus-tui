@@ -60,3 +60,17 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# Python
+venv/
+__pycache__/
+*.pyc
+.env
+.env.local
+config.txt
+list_models.py
+
+# Generated Wrappers (from run.sh)
+octopus
+octopus-tui
+octopus-ask

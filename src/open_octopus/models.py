@@ -61,6 +61,7 @@ class Dispatch:
     """Intelligent Octopus dispatch (smart charging window)."""
     start: datetime
     end: datetime
+    delta: float  # kWh
     source: str  # "smart-charge" or "bump-charge"
 
     @property
@@ -145,3 +146,4 @@ class GasTariff:
     product_code: str
     standing_charge: float  # pence/day
     unit_rate: float  # pence/kWh
+    tariff_code: Optional[str] = None  # Full tariff code e.g. G-1R-SILVER-25-04-15-L

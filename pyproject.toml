@@ -46,7 +46,7 @@ dependencies = [
 
 [project.optional-dependencies]
 agent = [
-    "anthropic>=0.30.0",
+    "google-genai>=0.2.0",
 ]
 menubar = [
     "pyobjc-framework-Cocoa>=10.0",
