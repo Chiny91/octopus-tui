@@ -59,11 +59,6 @@ try:
 except ImportError:
     OctopusAgent = None
 
-try:
-    from .menubar import OctopusMenuBar
-except ImportError:
-    OctopusMenuBar = None
-
 __all__ = [
     # Client
     "OctopusClient",
@@ -89,5 +84,4 @@ __all__ = [
     "GasMeterPoint",
     # Optional
     "OctopusAgent",
-    "OctopusMenuBar",
 ]
