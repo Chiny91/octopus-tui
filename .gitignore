@@ -74,3 +74,4 @@ list_models.py
 octopus
 octopus-tui
 octopus-ask
+cache/
