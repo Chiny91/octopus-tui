@@ -27,6 +27,8 @@
 - **🔋 Smart Dispatch**: View your Intelligent Octopus EV charging schedules.
 - **💰 Cost Tracking**: Monthly cost projections and rate comparisons.
 
+![Octopus TUI Screenshot](assets/screenshot.png)
+
 ## 💻 Compatibility
 
 This tool is designed for **Unix-based systems** (Linux and macOS) as it relies on `termios` and `tty` libraries for the interactive Terminal User Interface (TUI).
