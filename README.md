@@ -27,7 +27,7 @@
 - **🔋 Smart Dispatch**: View your Intelligent Octopus EV charging schedules.
 - **💰 Cost Tracking**: Monthly cost projections and rate comparisons.
 
-![Octopus TUI Screenshot](assets/screenshot.png)
+![Octopus TUI Screenshot](assets/screenshot.jpg)
 
 ## 💻 Compatibility
 
